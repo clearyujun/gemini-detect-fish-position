@@ -5,7 +5,7 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Camera, RefreshCw, Target, Fish, Loader2, AlertCircle, Settings, X, Check, Radio } from 'lucide-react';
+import { Camera, RefreshCw, Target, Fish, Loader2, AlertCircle, Settings, X, Check, Radio, Play, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Types for detection results
@@ -31,6 +31,9 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [wsStatus, setWsStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
+  const [isLive, setIsLive] = useState(false);
+  const [highAccuracy, setHighAccuracy] = useState(false);
+  const liveLoopRef = useRef<number | null>(null);
 
   // Initialize WebSocket
   useEffect(() => {
@@ -120,34 +123,48 @@ export default function App() {
     };
   }, [selectedDeviceId, startCamera]);
 
-  const detectFish = async () => {
+  const detectFish = async (continuous = false) => {
     if (!videoRef.current || !canvasRef.current) return;
 
-    setIsDetecting(true);
+    if (!continuous) setIsDetecting(true);
     setError(null);
 
     try {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      
+      // Use video dimensions
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      
+      if (width === 0 || height === 0) return;
+
+      canvas.width = width;
+      canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error("Could not get canvas context");
 
       // Draw current frame to canvas
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-      setCapturedImage(canvas.toDataURL('image/jpeg'));
+      // Increase quality for better detection of small/blurry fish
+      const base64Image = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+      
+      // Only set captured image if not in live mode
+      if (!continuous) {
+        setCapturedImage(canvas.toDataURL('image/jpeg'));
+      }
 
       // Initialize Gemini
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
       
+      const modelName = highAccuracy ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
+
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: modelName,
         contents: [
           {
             parts: [
-              { text: "Detect all fish in this image. Return the bounding boxes in [ymin, xmin, ymax, xmax] format where values are 0-1000. Return as JSON." },
+              { text: "Locate every single fish in this image. Be extremely thorough. Detect all fish regardless of their species, size, color, or orientation. Do not categorize them, just identify them as 'fish'. Return bounding boxes in [ymin, xmin, ymax, xmax] format where values are 0-1000. Output strictly in JSON format." },
               {
                 inlineData: {
                   mimeType: "image/jpeg",
@@ -192,20 +209,50 @@ export default function App() {
           type: 'FISH_DETECTION',
           timestamp: Date.now(),
           detections: result.detections,
-          imageWidth: video.videoWidth,
-          imageHeight: video.videoHeight
+          imageWidth: width,
+          imageHeight: height,
+          isLive: continuous
         }));
       }
       
-      if (result.detections.length === 0) {
+      if (!continuous && result.detections.length === 0) {
         setError("No fish detected in this frame. Try another angle!");
       }
 
     } catch (err) {
       console.error("Detection error:", err);
-      setError("Failed to detect fish. Please try again.");
+      if (!continuous) setError("Failed to detect fish. Please try again.");
     } finally {
-      setIsDetecting(false);
+      if (!continuous) setIsDetecting(false);
+    }
+  };
+
+  // Live Detection Loop
+  useEffect(() => {
+    let active = true;
+    
+    const loop = async () => {
+      if (!isLive || !active) return;
+      await detectFish(true);
+      if (active && isLive) {
+        // Small delay to avoid rate limits and allow UI to breathe
+        setTimeout(loop, 200);
+      }
+    };
+
+    if (isLive) {
+      loop();
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [isLive]);
+
+  const toggleLive = () => {
+    setIsLive(!isLive);
+    if (!isLive) {
+      reset();
     }
   };
 
@@ -213,6 +260,7 @@ export default function App() {
     setCapturedImage(null);
     setDetections([]);
     setError(null);
+    setIsLive(false);
   };
 
   return (
@@ -268,14 +316,24 @@ export default function App() {
               autoPlay
               playsInline
               muted
-              className={`w-full h-full object-cover transition-opacity duration-700 ${isCameraReady ? 'opacity-100' : 'opacity-0'}`}
+              className={`w-full h-full object-contain transition-opacity duration-700 ${isCameraReady ? 'opacity-100' : 'opacity-0'}`}
             />
           ) : (
             <img 
               src={capturedImage} 
               alt="Captured" 
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
+            />
+          )}
+
+          {/* Scanning Animation */}
+          {(isDetecting || isLive) && (
+            <motion.div 
+              initial={{ top: '0%' }}
+              animate={{ top: '100%' }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+              className="absolute left-0 right-0 h-0.5 bg-emerald-400/50 shadow-[0_0_15px_rgba(52,211,153,0.5)] z-20 pointer-events-none"
             />
           )}
 
@@ -285,10 +343,11 @@ export default function App() {
               const [ymin, xmin, ymax, xmax] = det.box_2d;
               return (
                 <motion.div
-                  key={idx}
-                  initial={{ opacity: 0, scale: 0.9 }}
+                  key={`${idx}-${ymin}-${xmin}`}
+                  initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="absolute border-2 border-emerald-400 bg-emerald-400/10 rounded-sm pointer-events-none z-10"
+                  exit={{ opacity: 0 }}
+                  className="absolute border-2 border-emerald-400 bg-emerald-400/5 rounded-lg pointer-events-none z-10 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
                   style={{
                     top: `${ymin / 10}%`,
                     left: `${xmin / 10}%`,
@@ -296,8 +355,15 @@ export default function App() {
                     height: `${(ymax - ymin) / 10}%`,
                   }}
                 >
-                  <div className="absolute -top-6 left-0 bg-emerald-400 text-zinc-950 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-tighter whitespace-nowrap">
-                    {det.label}
+                  {/* Corner Accents */}
+                  <div className="absolute -top-1 -left-1 w-3 h-3 border-t-2 border-l-2 border-emerald-400" />
+                  <div className="absolute -top-1 -right-1 w-3 h-3 border-t-2 border-r-2 border-emerald-400" />
+                  <div className="absolute -bottom-1 -left-1 w-3 h-3 border-b-2 border-l-2 border-emerald-400" />
+                  <div className="absolute -bottom-1 -right-1 w-3 h-3 border-b-2 border-r-2 border-emerald-400" />
+                  
+                  <div className="absolute -top-7 left-0 bg-emerald-500 text-zinc-950 text-[10px] font-black px-2 py-0.5 rounded shadow-lg uppercase tracking-wider whitespace-nowrap flex items-center gap-1">
+                    <Target className="w-3 h-3" />
+                    FISH DETECTED
                   </div>
                 </motion.div>
               );
@@ -321,26 +387,87 @@ export default function App() {
           )}
         </div>
 
+        {/* Detection Status Panel */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-zinc-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-4">
+            <div className={`p-3 rounded-lg ${detections.length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
+              <Fish className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Targets Found</p>
+              <p className="text-2xl font-bold text-zinc-100">{detections.length}</p>
+            </div>
+          </div>
+          
+          <div className="bg-zinc-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-4">
+            <div className={`p-3 rounded-lg ${isLive ? 'bg-red-500/20 text-red-400' : 'bg-zinc-800 text-zinc-500'}`}>
+              <Radio className={`w-6 h-6 ${isLive ? 'animate-pulse' : ''}`} />
+            </div>
+            <div>
+              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">System Mode</p>
+              <p className="text-lg font-bold text-zinc-100 uppercase">{isLive ? 'Live Tracking' : 'Standby'}</p>
+            </div>
+          </div>
+
+          <div className="bg-zinc-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-4">
+            <div className={`p-3 rounded-lg ${wsStatus === 'connected' ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-500'}`}>
+              <RefreshCw className={`w-6 h-6 ${wsStatus === 'connecting' ? 'animate-spin' : ''}`} />
+            </div>
+            <div>
+              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Data Stream</p>
+              <p className="text-lg font-bold text-zinc-100 uppercase">{wsStatus}</p>
+            </div>
+          </div>
+        </div>
+
         {/* Controls */}
         <div className="flex flex-col items-center gap-6">
-          <div className="flex gap-4">
-            {!capturedImage ? (
-              <button
-                onClick={detectFish}
-                disabled={!isCameraReady || isDetecting}
-                className="group relative px-8 py-4 bg-emerald-500 hover:bg-emerald-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-zinc-950 font-bold rounded-xl transition-all active:scale-95 flex items-center gap-3 shadow-[0_0_20px_rgba(16,185,129,0.3)]"
-              >
-                <Target className={`w-5 h-5 ${isDetecting ? 'animate-ping' : ''}`} />
-                <span>DETECT FISH</span>
-              </button>
-            ) : (
-              <button
-                onClick={reset}
-                className="px-8 py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-bold rounded-xl transition-all active:scale-95 flex items-center gap-3"
-              >
-                <RefreshCw className="w-5 h-5" />
-                <span>NEW SCAN</span>
-              </button>
+          <div className="flex flex-wrap justify-center gap-4">
+            <button
+              onClick={toggleLive}
+              disabled={!isCameraReady}
+              className={`px-8 py-4 font-bold rounded-xl transition-all active:scale-95 flex items-center gap-3 shadow-lg ${
+                isLive 
+                  ? 'bg-red-500 hover:bg-red-400 text-white shadow-red-500/20' 
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border border-emerald-500/20 shadow-emerald-500/10'
+              }`}
+            >
+              {isLive ? <Square className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
+              <span>{isLive ? 'STOP LIVE TRACKING' : 'START LIVE TRACKING'}</span>
+            </button>
+
+            {!isLive && (
+              <>
+                <button
+                  onClick={() => setHighAccuracy(!highAccuracy)}
+                  className={`px-4 py-4 font-bold rounded-xl transition-all border ${
+                    highAccuracy 
+                      ? 'bg-amber-500/10 border-amber-500/50 text-amber-400' 
+                      : 'bg-zinc-800/50 border-white/5 text-zinc-400'
+                  }`}
+                  title={highAccuracy ? "Using Pro model (Slower, More Accurate)" : "Using Flash model (Faster)"}
+                >
+                  {highAccuracy ? 'HIGH ACCURACY: ON' : 'HIGH ACCURACY: OFF'}
+                </button>
+                {!capturedImage ? (
+                  <button
+                    onClick={() => detectFish(false)}
+                    disabled={!isCameraReady || isDetecting}
+                    className="group relative px-8 py-4 bg-emerald-500 hover:bg-emerald-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-zinc-950 font-bold rounded-xl transition-all active:scale-95 flex items-center gap-3 shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+                  >
+                    <Target className={`w-5 h-5 ${isDetecting ? 'animate-ping' : ''}`} />
+                    <span>SINGLE SCAN</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={reset}
+                    className="px-8 py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-bold rounded-xl transition-all active:scale-95 flex items-center gap-3"
+                  >
+                    <RefreshCw className="w-5 h-5" />
+                    <span>RESET VIEW</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
 
