@@ -1,0 +1,5 @@
+{
+  "name": "Fish Detector AI",
+  "description": "Detects and locates fish in real-time using your camera and Gemini AI.",
+  "requestFramePermissions": ["camera"]
+}
