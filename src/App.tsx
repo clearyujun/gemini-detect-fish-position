@@ -307,9 +307,11 @@ export default function App() {
       </div>
     </header>
 
-      <main className="max-w-4xl mx-auto p-6 space-y-8">
-        {/* Viewport */}
-        <div className="relative aspect-video bg-zinc-900 rounded-2xl overflow-hidden border border-white/10 shadow-2xl group">
+      <main className="max-w-6xl mx-auto p-6 space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+          {/* Viewport - Takes 3 columns on large screens */}
+          <div className="lg:col-span-3 space-y-6">
+            <div className="relative aspect-video bg-zinc-900 rounded-2xl overflow-hidden border border-white/10 shadow-2xl group">
           {!capturedImage ? (
             <video
               ref={videoRef}
@@ -361,9 +363,14 @@ export default function App() {
                   <div className="absolute -bottom-1 -left-1 w-3 h-3 border-b-2 border-l-2 border-emerald-400" />
                   <div className="absolute -bottom-1 -right-1 w-3 h-3 border-b-2 border-r-2 border-emerald-400" />
                   
-                  <div className="absolute -top-7 left-0 bg-emerald-500 text-zinc-950 text-[10px] font-black px-2 py-0.5 rounded shadow-lg uppercase tracking-wider whitespace-nowrap flex items-center gap-1">
-                    <Target className="w-3 h-3" />
-                    FISH DETECTED
+                  <div className="absolute -top-7 left-0 bg-emerald-500 text-zinc-950 text-[10px] font-black px-2 py-0.5 rounded shadow-lg uppercase tracking-wider whitespace-nowrap flex flex-col gap-0">
+                    <div className="flex items-center gap-1">
+                      <Target className="w-3 h-3" />
+                      FISH DETECTED
+                    </div>
+                    <div className="text-[8px] opacity-80 font-mono">
+                      X:{Math.round((xmin + xmax) / 2)} Y:{Math.round((ymin + ymax) / 2)}
+                    </div>
                   </div>
                 </motion.div>
               );
@@ -387,38 +394,105 @@ export default function App() {
           )}
         </div>
 
-        {/* Detection Status Panel */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-zinc-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-4">
-            <div className={`p-3 rounded-lg ${detections.length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
-              <Fish className="w-6 h-6" />
+          {/* Detection Status Panel */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-zinc-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-4">
+              <div className={`p-3 rounded-lg ${detections.length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                <Fish className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Targets Found</p>
+                <p className="text-2xl font-bold text-zinc-100">{detections.length}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Targets Found</p>
-              <p className="text-2xl font-bold text-zinc-100">{detections.length}</p>
+            
+            <div className="bg-zinc-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-4">
+              <div className={`p-3 rounded-lg ${isLive ? 'bg-red-500/20 text-red-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                <Radio className={`w-6 h-6 ${isLive ? 'animate-pulse' : ''}`} />
+              </div>
+              <div>
+                <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">System Mode</p>
+                <p className="text-lg font-bold text-zinc-100 uppercase">{isLive ? 'Live Tracking' : 'Standby'}</p>
+              </div>
             </div>
-          </div>
-          
-          <div className="bg-zinc-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-4">
-            <div className={`p-3 rounded-lg ${isLive ? 'bg-red-500/20 text-red-400' : 'bg-zinc-800 text-zinc-500'}`}>
-              <Radio className={`w-6 h-6 ${isLive ? 'animate-pulse' : ''}`} />
-            </div>
-            <div>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">System Mode</p>
-              <p className="text-lg font-bold text-zinc-100 uppercase">{isLive ? 'Live Tracking' : 'Standby'}</p>
-            </div>
-          </div>
 
-          <div className="bg-zinc-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-4">
-            <div className={`p-3 rounded-lg ${wsStatus === 'connected' ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-500'}`}>
-              <RefreshCw className={`w-6 h-6 ${wsStatus === 'connecting' ? 'animate-spin' : ''}`} />
-            </div>
-            <div>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Data Stream</p>
-              <p className="text-lg font-bold text-zinc-100 uppercase">{wsStatus}</p>
+            <div className="bg-zinc-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-4">
+              <div className={`p-3 rounded-lg ${wsStatus === 'connected' ? 'bg-blue-500/20 text-blue-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                <RefreshCw className={`w-6 h-6 ${wsStatus === 'connecting' ? 'animate-spin' : ''}`} />
+              </div>
+              <div>
+                <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Data Stream</p>
+                <p className="text-lg font-bold text-zinc-100 uppercase">{wsStatus}</p>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Sidebar - Live Data Feed */}
+        <div className="lg:col-span-1 space-y-4">
+          <div className="bg-zinc-900 border border-white/10 rounded-2xl p-5 h-full flex flex-col shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+                <Target className="w-4 h-4 text-emerald-400" />
+                Live Data Feed
+              </h2>
+              {isLive && <span className="flex h-2 w-2 rounded-full bg-red-500 animate-pulse" />}
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
+              {detections.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center p-4 opacity-30">
+                  <Fish className="w-8 h-8 mb-2" />
+                  <p className="text-[10px] font-mono uppercase">No active targets</p>
+                </div>
+              ) : (
+                detections.map((det, i) => {
+                  const [ymin, xmin, ymax, xmax] = det.box_2d;
+                  const centerX = Math.round((xmin + xmax) / 2);
+                  const centerY = Math.round((ymin + ymax) / 2);
+                  return (
+                    <motion.div 
+                      key={i}
+                      initial={{ x: 20, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      className="p-3 bg-zinc-800/50 border border-white/5 rounded-lg hover:border-emerald-500/30 transition-colors"
+                    >
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-black text-emerald-400">TARGET #{i + 1}</span>
+                        <span className="text-[8px] font-mono text-zinc-500">FISH</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                        <div className="bg-zinc-950 p-1.5 rounded">
+                          <span className="text-zinc-500 mr-1">X:</span>
+                          <span className="text-zinc-100">{centerX}</span>
+                        </div>
+                        <div className="bg-zinc-950 p-1.5 rounded">
+                          <span className="text-zinc-500 mr-1">Y:</span>
+                          <span className="text-zinc-100">{centerY}</span>
+                        </div>
+                        <div className="bg-zinc-950 p-1.5 rounded">
+                          <span className="text-zinc-500 mr-1">W:</span>
+                          <span className="text-zinc-100">{xmax - xmin}</span>
+                        </div>
+                        <div className="bg-zinc-950 p-1.5 rounded">
+                          <span className="text-zinc-500 mr-1">H:</span>
+                          <span className="text-zinc-100">{ymax - ymin}</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-white/5">
+              <p className="text-[9px] text-zinc-600 font-mono leading-relaxed">
+                Coordinates are normalized (0-1000). Data is broadcasted via WebSocket in real-time.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
 
         {/* Controls */}
         <div className="flex flex-col items-center gap-6">
