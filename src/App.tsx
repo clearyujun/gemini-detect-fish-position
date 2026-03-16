@@ -5,7 +5,7 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Camera, RefreshCw, Target, Fish, Loader2, AlertCircle, Settings, X, Check } from 'lucide-react';
+import { Camera, RefreshCw, Target, Fish, Loader2, AlertCircle, Settings, X, Check, Radio } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Types for detection results
@@ -29,6 +29,40 @@ export default function App() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [ws, setWs] = useState<WebSocket | null>(null);
+  const [wsStatus, setWsStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
+
+  // Initialize WebSocket
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    const socket = new WebSocket(wsUrl);
+
+    socket.onopen = () => {
+      console.log('Connected to WebSocket server');
+      setWsStatus('connected');
+    };
+
+    socket.onclose = () => {
+      console.log('Disconnected from WebSocket server');
+      setWsStatus('disconnected');
+      // Attempt to reconnect after 3 seconds
+      setTimeout(() => {
+        setWsStatus('connecting');
+      }, 3000);
+    };
+
+    socket.onerror = (err) => {
+      console.error('WebSocket error:', err);
+      setWsStatus('disconnected');
+    };
+
+    setWs(socket);
+
+    return () => {
+      socket.close();
+    };
+  }, [wsStatus === 'connecting' ? 1 : 0]); // Re-run effect when status changes to connecting
 
   // Enumerate devices
   useEffect(() => {
@@ -152,6 +186,17 @@ export default function App() {
       const result = JSON.parse(response.text || '{"detections": []}') as DetectionResponse;
       setDetections(result.detections);
       
+      // Send to WebSocket
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'FISH_DETECTION',
+          timestamp: Date.now(),
+          detections: result.detections,
+          imageWidth: video.videoWidth,
+          imageHeight: video.videoHeight
+        }));
+      }
+      
       if (result.detections.length === 0) {
         setError("No fish detected in this frame. Try another angle!");
       }
@@ -183,7 +228,17 @@ export default function App() {
             <p className="text-xs text-zinc-500 font-mono uppercase tracking-widest">Real-time Vision</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 rounded-full border border-white/5">
+            <div className={`w-2 h-2 rounded-full ${
+              wsStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 
+              wsStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'
+            }`} />
+            <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
+              WS: {wsStatus}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
           {devices.length > 1 && (
             <button 
               onClick={() => setIsModalOpen(true)}
@@ -201,7 +256,8 @@ export default function App() {
             <RefreshCw className="w-5 h-5" />
           </button>
         </div>
-      </header>
+      </div>
+    </header>
 
       <main className="max-w-4xl mx-auto p-6 space-y-8">
         {/* Viewport */}
